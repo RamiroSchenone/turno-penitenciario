@@ -30,6 +30,9 @@ jobs:
         run: mkdir -p downloads
 
       - name: Ejecutar script
+        env:
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          EMAIL_DESTINATARIO: ${{ secrets.EMAIL_DESTINATARIO }}
         run: python main.py
 
       - name: Subir PDF como artifact
