@@ -88,7 +88,7 @@ def enviar_email(pdf_path: str, fecha_visita: str):
         print(f"Enviando email a: {destinatario}...")
         
         params = {
-            "from": "Turno Penitenciario <onboarding@resend.dev>",
+            "from": "Turno Penitenciario <turno@ramiroschenone-dev.com>",
             "to": [destinatario],
             "subject": f"Turno Penitenciario - {fecha_visita}",
             "html": f"""
