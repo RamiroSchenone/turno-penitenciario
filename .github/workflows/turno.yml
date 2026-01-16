@@ -2,7 +2,10 @@ name: Generar Turno Penitenciario
 
 on:
   schedule:
-    - cron: '50 2 * * 5'
+    # TEST: Sabado 00:00:00 Argentina (inicia 23:50 del viernes)
+    - cron: '50 2 * * 6'
+    # PRODUCCION: Viernes 00:00:00 Argentina (inicia 23:50 del jueves)
+    # - cron: '50 2 * * 5'
   workflow_dispatch:
     inputs:
       modo_test:
