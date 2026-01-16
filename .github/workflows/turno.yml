@@ -4,6 +4,15 @@ on:
   schedule:
     - cron: '50 2 * * 5'
   workflow_dispatch:
+    inputs:
+      modo_test:
+        description: 'Ejecutar en modo test (sin esperar medianoche)'
+        required: false
+        default: 'true'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
 
 jobs:
   generar-turno:
@@ -36,6 +45,7 @@ jobs:
           RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
           EMAIL_DESTINATARIO: ${{ secrets.EMAIL_DESTINATARIO }}
           TZ: America/Argentina/Buenos_Aires
+          MODO_TEST: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.modo_test || 'false' }}
         run: python main.py
 
       - name: Subir PDF como artifact

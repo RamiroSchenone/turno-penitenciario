@@ -20,6 +20,7 @@ DATOS = {
 
 RESEND_API_KEY = os.getenv("RESEND_API_KEY")
 EMAIL_DESTINATARIO = os.getenv("EMAIL_DESTINATARIO")
+MODO_TEST = os.getenv("MODO_TEST", "false").lower() == "true"
 MAX_REINTENTOS = 3
 
 def calcular_proximo_miercoles():
@@ -191,15 +192,20 @@ async def run():
         
         fecha_str = await preparar_formulario(page, fecha_visita)
         
-        print("\n" + "="*50)
-        print("FORMULARIO LISTO - ESPERANDO HORA EXACTA")
-        print("="*50 + "\n")
-        
-        esperar_hasta_medianoche()
-        
-        print("\n" + "="*50)
-        print("¡ENVIANDO FORMULARIO!")
-        print("="*50 + "\n")
+        if MODO_TEST:
+            print("\n" + "="*50)
+            print("MODO TEST - ENVIANDO INMEDIATAMENTE")
+            print("="*50 + "\n")
+        else:
+            print("\n" + "="*50)
+            print("MODO PRODUCCION - ESPERANDO HORA EXACTA (00:00:01)")
+            print("="*50 + "\n")
+            
+            esperar_hasta_medianoche()
+            
+            print("\n" + "="*50)
+            print("¡ENVIANDO FORMULARIO!")
+            print("="*50 + "\n")
         
         pdf_path = await enviar_formulario_con_reintentos(page, downloads_path)
         
