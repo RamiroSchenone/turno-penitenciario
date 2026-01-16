@@ -81,39 +81,45 @@ def enviar_email(pdf_path: str, fecha_visita: str):
     pdf_base64 = base64.b64encode(pdf_content).decode("utf-8")
     
     destinatarios = [email.strip() for email in EMAIL_DESTINATARIO.split(",")]
-    print(f"Enviando a: {destinatarios}")
+    print(f"Destinatarios: {destinatarios}")
     
-    params = {
-        "from": "Turno Penitenciario <onboarding@resend.dev>",
-        "to": destinatarios,
-        "subject": f"Turno Penitenciario - {fecha_visita}",
-        "html": f"""
-        <h2>Turno Generado Exitosamente</h2>
-        <p>Se ha generado el turno para la visita del <strong>{fecha_visita}</strong>.</p>
-        <p><strong>Datos:</strong></p>
-        <ul>
-            <li>Nombre: {DATOS['nombre']} {DATOS['apellido']}</li>
-            <li>DNI: {DATOS['documento']}</li>
-            <li>Unidad: {DATOS['unidad']}</li>
-            <li>Fecha de visita: {fecha_visita}</li>
-        </ul>
-        <p>El comprobante PDF se adjunta a este correo.</p>
-        """,
-        "attachments": [
-            {
-                "filename": f"turno_{fecha_visita.replace('/', '-')}.pdf",
-                "content": pdf_base64
-            }
-        ]
-    }
+    exitos = 0
+    for destinatario in destinatarios:
+        print(f"Enviando email a: {destinatario}...")
+        
+        params = {
+            "from": "Turno Penitenciario <onboarding@resend.dev>",
+            "to": [destinatario],
+            "subject": f"Turno Penitenciario - {fecha_visita}",
+            "html": f"""
+            <h2>Turno Generado Exitosamente</h2>
+            <p>Se ha generado el turno para la visita del <strong>{fecha_visita}</strong>.</p>
+            <p><strong>Datos:</strong></p>
+            <ul>
+                <li>Nombre: {DATOS['nombre']} {DATOS['apellido']}</li>
+                <li>DNI: {DATOS['documento']}</li>
+                <li>Unidad: {DATOS['unidad']}</li>
+                <li>Fecha de visita: {fecha_visita}</li>
+            </ul>
+            <p>El comprobante PDF se adjunta a este correo.</p>
+            """,
+            "attachments": [
+                {
+                    "filename": f"turno_{fecha_visita.replace('/', '-')}.pdf",
+                    "content": pdf_base64
+                }
+            ]
+        }
+        
+        try:
+            response = resend.Emails.send(params)
+            print(f"  -> Enviado a {destinatario}: {response}")
+            exitos += 1
+        except Exception as e:
+            print(f"  -> Error enviando a {destinatario}: {e}")
     
-    try:
-        response = resend.Emails.send(params)
-        print(f"Email enviado exitosamente: {response}")
-        return True
-    except Exception as e:
-        print(f"Error enviando email: {e}")
-        return False
+    print(f"Emails enviados: {exitos}/{len(destinatarios)}")
+    return exitos > 0
 
 async def preparar_formulario(page, fecha_visita):
     print("Navegando a la pagina...")
