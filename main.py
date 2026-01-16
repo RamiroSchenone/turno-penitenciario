@@ -80,9 +80,12 @@ def enviar_email(pdf_path: str, fecha_visita: str):
     
     pdf_base64 = base64.b64encode(pdf_content).decode("utf-8")
     
+    destinatarios = [email.strip() for email in EMAIL_DESTINATARIO.split(",")]
+    print(f"Enviando a: {destinatarios}")
+    
     params = {
         "from": "Turno Penitenciario <onboarding@resend.dev>",
-        "to": [EMAIL_DESTINATARIO],
+        "to": destinatarios,
         "subject": f"Turno Penitenciario - {fecha_visita}",
         "html": f"""
         <h2>Turno Generado Exitosamente</h2>
