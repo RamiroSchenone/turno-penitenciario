@@ -2,12 +2,13 @@ name: Generar Turno Penitenciario
 
 on:
   schedule:
-    - cron: '0 3 * * 5'
+    - cron: '50 2 * * 5'
   workflow_dispatch:
 
 jobs:
   generar-turno:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     
     steps:
       - name: Checkout repositorio
@@ -30,16 +31,18 @@ jobs:
         run: mkdir -p downloads
 
       - name: Ejecutar script
+        timeout-minutes: 20
         env:
           RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
           EMAIL_DESTINATARIO: ${{ secrets.EMAIL_DESTINATARIO }}
+          TZ: America/Argentina/Buenos_Aires
         run: python main.py
 
       - name: Subir PDF como artifact
         uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: turno-pdf-${{ github.run_number }}
-          path: downloads/*.pdf
+          path: downloads/*
           retention-days: 90
           if-no-files-found: warn
-
