@@ -31,24 +31,47 @@ def calcular_proximo_miercoles():
     proximo_miercoles = ahora + timedelta(days=dias_hasta_miercoles)
     return proximo_miercoles
 
-VENTANA_EJECUCION_MINUTOS = 30
-
-def verificar_ventana_ejecucion():
+def obtener_proxima_medianoche():
     ahora = datetime.now(TIMEZONE)
-    hora_actual = ahora.hour
-    minuto_actual = ahora.minute
+    if ahora.hour >= 12:
+        medianoche = (ahora + timedelta(days=1)).replace(hour=0, minute=0, second=1, microsecond=0)
+    else:
+        medianoche = ahora.replace(hour=0, minute=0, second=1, microsecond=0)
+    return medianoche
+
+def esperar_hasta_medianoche():
+    objetivo = obtener_proxima_medianoche()
+    ahora = datetime.now(TIMEZONE)
+    
+    segundos_restantes = (objetivo - ahora).total_seconds()
+    
+    if segundos_restantes <= 0:
+        print("Ya pasó la medianoche, ejecutando inmediatamente...")
+        return
+    
+    if segundos_restantes > 7200:
+        raise Exception(f"Demasiado tiempo de espera ({segundos_restantes/3600:.1f} horas). Verificar configuración del cron.")
     
     print(f"Hora actual (Argentina): {ahora.strftime('%Y-%m-%d %H:%M:%S')}")
+    print(f"Objetivo: {objetivo.strftime('%Y-%m-%d %H:%M:%S')}")
+    print(f"Esperando {segundos_restantes:.0f} segundos ({segundos_restantes/60:.1f} minutos)...")
     
-    if hora_actual == 0 and minuto_actual < VENTANA_EJECUCION_MINUTOS:
-        print(f"Dentro de la ventana de ejecución (00:00 - 00:{VENTANA_EJECUCION_MINUTOS})")
-        return True
-    
-    print(f"ADVERTENCIA: Fuera de la ventana óptima de ejecución")
-    print(f"Se esperaba ejecución entre 00:00 y 00:{VENTANA_EJECUCION_MINUTOS}")
-    print(f"Hora actual: {hora_actual:02d}:{minuto_actual:02d}")
-    print("Ejecutando de todas formas (el scheduler debería ajustarse)...")
-    return True
+    import time
+    while True:
+        ahora = datetime.now(TIMEZONE)
+        segundos_restantes = (objetivo - ahora).total_seconds()
+        
+        if segundos_restantes <= 0:
+            print(f"¡Es la hora! {ahora.strftime('%H:%M:%S.%f')}")
+            break
+        
+        if segundos_restantes > 60:
+            print(f"  Faltan {segundos_restantes:.0f} segundos...")
+            time.sleep(30)
+        elif segundos_restantes > 5:
+            time.sleep(1)
+        else:
+            time.sleep(0.05)
 
 def enviar_email(pdf_path: str, fecha_visita: str):
     if not RESEND_API_KEY or not EMAIL_DESTINATARIO:
@@ -189,10 +212,10 @@ async def run():
             print("="*50 + "\n")
         else:
             print("\n" + "="*50)
-            print("MODO PRODUCCION - EJECUCION INMEDIATA")
+            print("MODO PRODUCCION - ESPERANDO MEDIANOCHE")
             print("="*50 + "\n")
             
-            verificar_ventana_ejecucion()
+            esperar_hasta_medianoche()
             
             print("\n" + "="*50)
             print("¡ENVIANDO FORMULARIO!")

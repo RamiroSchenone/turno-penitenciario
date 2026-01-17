@@ -2,16 +2,16 @@ name: Generar Turno Penitenciario
 
 on:
   schedule:
-    # TEST: 17/01 13:50 Argentina = 16:50 UTC
-    - cron: '55 16 * * *'
-    # PRODUCCION: Viernes 00:00 Argentina = 03:00 UTC
-    # - cron: '0 3 * * 5'
+    # TEST: Sabado 17/01 23:00 Argentina = Domingo 02:00 UTC
+    - cron: '0 2 18 1 *'
+    # PRODUCCION: Jueves 23:00 Argentina = Viernes 02:00 UTC (espera hasta 00:00 del viernes)
+    # - cron: '0 2 * * 5'
   workflow_dispatch:
 
 jobs:
   generar-turno:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 90
     
     steps:
       - name: Checkout repositorio
@@ -34,7 +34,7 @@ jobs:
         run: mkdir -p downloads
 
       - name: Ejecutar script
-        timeout-minutes: 10
+        timeout-minutes: 80
         env:
           RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
           EMAIL_DESTINATARIO: ${{ secrets.EMAIL_DESTINATARIO }}
