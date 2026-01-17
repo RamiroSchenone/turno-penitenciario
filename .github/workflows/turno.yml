@@ -3,7 +3,7 @@ name: Generar Turno Penitenciario
 on:
   schedule:
     # TEST: 17/01 13:50 Argentina = 16:50 UTC
-    - cron: '50 16 17 1 *'
+    - cron: '55 16 * * *'
     # PRODUCCION: Viernes 00:00 Argentina = 03:00 UTC
     # - cron: '0 3 * * 5'
   workflow_dispatch:
