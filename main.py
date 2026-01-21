@@ -34,9 +34,10 @@ def calcular_proximo_miercoles():
 def obtener_proxima_medianoche():
     ahora = datetime.now(TIMEZONE)
     if ahora.hour >= 12:
-        medianoche = (ahora + timedelta(days=1)).replace(hour=0, minute=0, second=1, microsecond=0)
+        manana = ahora + timedelta(days=1)
+        medianoche = datetime(manana.year, manana.month, manana.day, 0, 0, 1, tzinfo=TIMEZONE)
     else:
-        medianoche = ahora.replace(hour=0, minute=0, second=1, microsecond=0)
+        medianoche = datetime(ahora.year, ahora.month, ahora.day, 0, 0, 1, tzinfo=TIMEZONE)
     return medianoche
 
 def esperar_hasta_medianoche():
