@@ -31,48 +31,78 @@ def calcular_proximo_miercoles():
     proximo_miercoles = ahora + timedelta(days=dias_hasta_miercoles)
     return proximo_miercoles
 
-def obtener_proxima_medianoche():
+def obtener_hora_objetivo():
+    """
+    Obtiene la hora objetivo para ejecutar.
+    Si se pasa HORA_OBJETIVO env var (formato HH:MM), usa esa hora del día actual.
+    Si no, usa medianoche (00:00:01) del día siguiente si es después de mediodía,
+    o del día actual si es antes de mediodía.
+    """
     ahora = datetime.now(TIMEZONE)
+    hora_objetivo_env = os.getenv("HORA_OBJETIVO")
+
+    if hora_objetivo_env:
+        try:
+            hora, minuto = map(int, hora_objetivo_env.split(":"))
+            objetivo = datetime(ahora.year, ahora.month, ahora.day, hora, minuto, 0, tzinfo=TIMEZONE)
+            # Si la hora ya pasó hoy, usar mañana
+            if objetivo <= ahora:
+                objetivo += timedelta(days=1)
+            return objetivo
+        except ValueError:
+            print(f"HORA_OBJETIVO inválida: {hora_objetivo_env}, usando medianoche")
+
+    # Default: medianoche
     if ahora.hour >= 12:
         manana = ahora + timedelta(days=1)
-        medianoche = datetime(manana.year, manana.month, manana.day, 0, 0, 1, tzinfo=TIMEZONE)
+        return datetime(manana.year, manana.month, manana.day, 0, 0, 1, tzinfo=TIMEZONE)
     else:
-        medianoche = datetime(ahora.year, ahora.month, ahora.day, 0, 0, 1, tzinfo=TIMEZONE)
-    return medianoche
+        return datetime(ahora.year, ahora.month, ahora.day, 0, 0, 1, tzinfo=TIMEZONE)
 
-def esperar_hasta_medianoche():
-    objetivo = obtener_proxima_medianoche()
-    ahora = datetime.now(TIMEZONE)
-    
-    segundos_restantes = (objetivo - ahora).total_seconds()
-    
-    if segundos_restantes <= 0:
-        print("Ya pasó la medianoche, ejecutando inmediatamente...")
-        return
-    
-    if segundos_restantes > 7200:
-        raise Exception(f"Demasiado tiempo de espera ({segundos_restantes/3600:.1f} horas). Verificar configuración del cron.")
-    
-    print(f"Hora actual (Argentina): {ahora.strftime('%Y-%m-%d %H:%M:%S')}")
-    print(f"Objetivo: {objetivo.strftime('%Y-%m-%d %H:%M:%S')}")
-    print(f"Esperando {segundos_restantes:.0f} segundos ({segundos_restantes/60:.1f} minutos)...")
-    
+def esperar_hasta_hora_objetivo():
+    """
+    Espera hasta la hora objetivo con precisión de milisegundos.
+    Diseñado para ser disparado ~10-30 segundos antes por cron-job.org.
+    """
     import time
+
+    objetivo = obtener_hora_objetivo()
+    ahora = datetime.now(TIMEZONE)
+
+    segundos_restantes = (objetivo - ahora).total_seconds()
+
+    if segundos_restantes <= 0:
+        print("Ya pasó la hora objetivo, ejecutando inmediatamente...")
+        return
+
+    # Máximo 5 minutos de espera - si es más, algo está mal configurado
+    if segundos_restantes > 300:
+        raise Exception(f"Demasiado tiempo de espera ({segundos_restantes:.0f} seg). El trigger debe dispararse ~30 seg antes de la hora objetivo.")
+
+    print(f"Hora actual (Argentina): {ahora.strftime('%Y-%m-%d %H:%M:%S.%f')}")
+    print(f"Hora objetivo: {objetivo.strftime('%Y-%m-%d %H:%M:%S')}")
+    print(f"Esperando {segundos_restantes:.1f} segundos...")
+
+    # Espera gruesa hasta 2 segundos antes
     while True:
         ahora = datetime.now(TIMEZONE)
         segundos_restantes = (objetivo - ahora).total_seconds()
-        
-        if segundos_restantes <= 0:
-            print(f"¡Es la hora! {ahora.strftime('%H:%M:%S.%f')}")
+
+        if segundos_restantes <= 2:
             break
-        
-        if segundos_restantes > 60:
+        elif segundos_restantes > 10:
             print(f"  Faltan {segundos_restantes:.0f} segundos...")
-            time.sleep(30)
-        elif segundos_restantes > 5:
-            time.sleep(1)
+            time.sleep(5)
         else:
-            time.sleep(0.05)
+            time.sleep(0.5)
+
+    # Espera fina con alta precisión
+    while True:
+        ahora = datetime.now(TIMEZONE)
+        if ahora >= objetivo:
+            print(f"¡HORA EXACTA! {ahora.strftime('%H:%M:%S.%f')}")
+            break
+        time.sleep(0.01)  # 10ms de precisión
 
 def enviar_email(pdf_path: str, fecha_visita: str):
     if not RESEND_API_KEY or not EMAIL_DESTINATARIO:
@@ -213,10 +243,10 @@ async def run():
             print("="*50 + "\n")
         else:
             print("\n" + "="*50)
-            print("MODO PRODUCCION - ESPERANDO MEDIANOCHE")
+            print("MODO PRODUCCION - ESPERANDO HORA OBJETIVO")
             print("="*50 + "\n")
-            
-            esperar_hasta_medianoche()
+
+            esperar_hasta_hora_objetivo()
             
             print("\n" + "="*50)
             print("¡ENVIANDO FORMULARIO!")

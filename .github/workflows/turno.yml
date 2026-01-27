@@ -1,17 +1,23 @@
 name: Generar Turno Penitenciario
 
 on:
-  schedule:
-    # TEST: 21/01 23:00 Argentina = 22/01 02:00 UTC
-    - cron: '0 2 22 1 *'
-    # PRODUCCION: Jueves 23:00 Argentina = Viernes 02:00 UTC (espera hasta 00:00 del viernes)
-    # - cron: '0 2 * * 5'
+  # Disparado por cron-job.org via API - NO usar schedule de GitHub (impreciso)
   workflow_dispatch:
+    inputs:
+      hora_objetivo:
+        description: 'Hora objetivo Argentina (HH:MM). Vacío = medianoche'
+        required: false
+        default: ''
+      modo_test:
+        description: 'Ejecutar inmediatamente sin esperar'
+        required: false
+        default: 'false'
+        type: boolean
 
 jobs:
   generar-turno:
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 15
     
     steps:
       - name: Checkout repositorio
@@ -34,12 +40,13 @@ jobs:
         run: mkdir -p downloads
 
       - name: Ejecutar script
-        timeout-minutes: 80
+        timeout-minutes: 10
         env:
           RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
           EMAIL_DESTINATARIO: ${{ secrets.EMAIL_DESTINATARIO }}
           TZ: America/Argentina/Buenos_Aires
-          MODO_TEST: ${{ github.event_name == 'workflow_dispatch' }}
+          HORA_OBJETIVO: ${{ inputs.hora_objetivo }}
+          MODO_TEST: ${{ inputs.modo_test }}
         run: python main.py
 
       - name: Subir PDF como artifact
