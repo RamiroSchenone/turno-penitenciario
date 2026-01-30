@@ -34,7 +34,7 @@ def calcular_proximo_miercoles():
 def obtener_hora_objetivo():
     """
     Obtiene la hora objetivo para ejecutar.
-    Si se pasa HORA_OBJETIVO env var (formato HH:MM), usa esa hora del día actual.
+    Si se pasa HORA_OBJETIVO env var (formato HH:MM o HH:MM:SS), usa esa hora del día actual.
     Si no, usa medianoche (00:00:01) del día siguiente si es después de mediodía,
     o del día actual si es antes de mediodía.
     """
@@ -43,8 +43,11 @@ def obtener_hora_objetivo():
 
     if hora_objetivo_env:
         try:
-            hora, minuto = map(int, hora_objetivo_env.split(":"))
-            objetivo = datetime(ahora.year, ahora.month, ahora.day, hora, minuto, 0, tzinfo=TIMEZONE)
+            partes = hora_objetivo_env.split(":")
+            hora = int(partes[0])
+            minuto = int(partes[1])
+            segundo = int(partes[2]) if len(partes) >= 3 else 0
+            objetivo = datetime(ahora.year, ahora.month, ahora.day, hora, minuto, segundo, tzinfo=TIMEZONE)
             # Si la hora ya pasó hoy, usar mañana
             if objetivo <= ahora:
                 objetivo += timedelta(days=1)

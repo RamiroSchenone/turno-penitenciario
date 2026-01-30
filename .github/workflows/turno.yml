@@ -5,7 +5,7 @@ on:
   workflow_dispatch:
     inputs:
       hora_objetivo:
-        description: 'Hora objetivo Argentina (HH:MM). Vacío = medianoche'
+        description: 'Hora objetivo Argentina (HH:MM o HH:MM:SS). Vacío = medianoche'
         required: false
         default: ''
       modo_test:
