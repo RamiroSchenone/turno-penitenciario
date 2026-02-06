@@ -22,6 +22,8 @@ RESEND_API_KEY = os.getenv("RESEND_API_KEY")
 EMAIL_DESTINATARIO = os.getenv("EMAIL_DESTINATARIO")
 MODO_TEST = os.getenv("MODO_TEST", "false").lower() == "true"
 MAX_REINTENTOS = 3
+MAX_ESPERA_TURNOS = 300  # Máximo 5 minutos esperando que se actualicen los turnos
+INTERVALO_RECARGA = 5    # Segundos entre recargas de página
 
 def calcular_proximo_miercoles():
     ahora = datetime.now(TIMEZONE)
@@ -194,6 +196,41 @@ async def preparar_formulario(page, fecha_visita):
     print("Formulario preparado, listo para enviar...")
     return fecha_str
 
+async def esperar_turnos_actualizados(page, fecha_visita):
+    """
+    Espera a que los turnos se actualicen en el servidor.
+    Verifica el atributo 'max' del campo de fecha: si no permite nuestra fecha,
+    los turnos aún no se actualizaron. Recarga la página y reintenta.
+    """
+    import time
+    inicio = time.time()
+    intento_recarga = 0
+
+    while True:
+        date_input = page.locator("input[type='date']")
+        max_attr = await date_input.get_attribute("max")
+
+        fecha_objetivo = fecha_visita.strftime("%Y-%m-%d")
+
+        if max_attr is None or max_attr >= fecha_objetivo:
+            print(f"Turnos actualizados (max={max_attr}). Fecha objetivo {fecha_objetivo} permitida.")
+            return True
+
+        transcurrido = time.time() - inicio
+        if transcurrido >= MAX_ESPERA_TURNOS:
+            print(f"Timeout: los turnos no se actualizaron después de {MAX_ESPERA_TURNOS} segundos (max={max_attr}, necesitamos>={fecha_objetivo})")
+            return False
+
+        intento_recarga += 1
+        print(f"Turnos no actualizados (max={max_attr}, necesitamos>={fecha_objetivo}). "
+              f"Recarga #{intento_recarga}, transcurridos {transcurrido:.0f}s...")
+
+        await page.wait_for_timeout(INTERVALO_RECARGA * 1000)
+
+        # Re-navegar y re-llenar el formulario (goto recarga la página)
+        await preparar_formulario(page, fecha_visita)
+
+
 async def enviar_formulario_con_reintentos(page, downloads_path):
     generar_btn = page.get_by_role("button", name="Generar Turno")
     
@@ -255,6 +292,13 @@ async def run():
         page = await context.new_page()
 
         fecha_str = await preparar_formulario(page, fecha_visita)
+
+        # Esperar a que los turnos se actualicen antes de intentar enviar
+        turnos_listos = await esperar_turnos_actualizados(page, fecha_visita)
+        if not turnos_listos:
+            print("No se pudieron actualizar los turnos. Abortando.")
+            await browser.close()
+            return None
 
         pdf_path = await enviar_formulario_con_reintentos(page, downloads_path)
 
