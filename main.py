@@ -229,34 +229,35 @@ async def enviar_formulario_con_reintentos(page, downloads_path):
 async def run():
     downloads_path = Path(__file__).parent / "downloads"
     downloads_path.mkdir(exist_ok=True)
-    
+
     fecha_visita = calcular_proximo_miercoles()
     print(f"Fecha de visita calculada: {fecha_visita.strftime('%d/%m/%Y')}")
-    
+
+    if MODO_TEST:
+        print("\n" + "="*50)
+        print("MODO TEST - ENVIANDO INMEDIATAMENTE")
+        print("="*50 + "\n")
+    else:
+        print("\n" + "="*50)
+        print("MODO PRODUCCION - ESPERANDO HORA OBJETIVO")
+        print("="*50 + "\n")
+
+        # Esperar ANTES de abrir el navegador para evitar timeout de sesión
+        esperar_hasta_hora_objetivo()
+
+        print("\n" + "="*50)
+        print("¡CARGANDO FORMULARIO Y ENVIANDO!")
+        print("="*50 + "\n")
+
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
         context = await browser.new_context(accept_downloads=True)
         page = await context.new_page()
-        
-        fecha_str = await preparar_formulario(page, fecha_visita)
-        
-        if MODO_TEST:
-            print("\n" + "="*50)
-            print("MODO TEST - ENVIANDO INMEDIATAMENTE")
-            print("="*50 + "\n")
-        else:
-            print("\n" + "="*50)
-            print("MODO PRODUCCION - ESPERANDO HORA OBJETIVO")
-            print("="*50 + "\n")
 
-            esperar_hasta_hora_objetivo()
-            
-            print("\n" + "="*50)
-            print("¡ENVIANDO FORMULARIO!")
-            print("="*50 + "\n")
-        
+        fecha_str = await preparar_formulario(page, fecha_visita)
+
         pdf_path = await enviar_formulario_con_reintentos(page, downloads_path)
-        
+
         await browser.close()
     
     if pdf_path and pdf_path.exists():
