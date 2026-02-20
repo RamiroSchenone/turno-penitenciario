@@ -21,9 +21,11 @@ DATOS = {
 RESEND_API_KEY = os.getenv("RESEND_API_KEY")
 EMAIL_DESTINATARIO = os.getenv("EMAIL_DESTINATARIO")
 MODO_TEST = os.getenv("MODO_TEST", "false").lower() == "true"
-MAX_REINTENTOS = 3
-MAX_ESPERA_TURNOS = 300  # Máximo 5 minutos esperando que se actualicen los turnos
-INTERVALO_RECARGA = 5    # Segundos entre recargas de página
+TIMEOUT_TOTAL = 900        # 15 minutos máximo para todo el proceso de reintentos
+MAX_ESPERA_TURNOS = 300    # Máximo 5 minutos esperando que se actualicen los turnos
+INTERVALO_RECARGA = 5      # Segundos entre recargas de página
+MAX_REINTENTOS_NAVEGACION = 5
+TIMEOUT_NAVEGACION = 30000  # 30 segundos
 
 def calcular_proximo_miercoles():
     ahora = datetime.now(TIMEZONE)
@@ -162,45 +164,72 @@ def enviar_email(pdf_path: str, fecha_visita: str):
     print(f"Emails enviados: {exitos}/{len(destinatarios)}")
     return exitos > 0
 
-async def preparar_formulario(page, fecha_visita):
-    print("Navegando a la pagina...")
-    await page.goto(URL, wait_until="networkidle")
-    await page.wait_for_timeout(2000)
-    
-    print("Seleccionando Unidad 16, PEREZ...")
+async def navegar_con_reintentos(page, url=URL, max_reintentos=MAX_REINTENTOS_NAVEGACION):
+    """
+    Navega a una URL con reintentos y backoff exponencial.
+    Usa 'domcontentloaded' en vez de 'networkidle' para mayor robustez.
+    """
+    for intento in range(1, max_reintentos + 1):
+        try:
+            print(f"  Navegando a {url} (intento {intento}/{max_reintentos})...")
+            await page.goto(url, wait_until="domcontentloaded", timeout=TIMEOUT_NAVEGACION)
+            await page.wait_for_selector("select", timeout=15000)
+            print(f"  Pagina cargada exitosamente")
+            return True
+        except Exception as e:
+            print(f"  Error navegando (intento {intento}): {e}")
+            if intento < max_reintentos:
+                espera = min(2 ** intento, 15)
+                print(f"  Reintentando en {espera} segundos...")
+                await asyncio.sleep(espera)
+            else:
+                raise Exception(f"No se pudo cargar la pagina despues de {max_reintentos} intentos: {e}")
+
+
+async def cargar_pagina_y_seleccionar_unidad(page):
+    """Carga la pagina con reintentos y selecciona la unidad."""
+    await navegar_con_reintentos(page)
+    await page.wait_for_timeout(1000)
+    print("  Seleccionando unidad...")
     unidad_select = page.locator("select").first
-    await unidad_select.select_option(value="Unidad 16, PEREZ")
-    
-    print(f"Llenando nombre: {DATOS['nombre']}")
+    await unidad_select.select_option(value=DATOS["unidad"])
+    await page.wait_for_timeout(500)
+
+
+async def preparar_formulario(page, fecha_visita):
+    """Llena el formulario. Asume que la pagina ya esta cargada con la unidad seleccionada."""
+    print("Llenando formulario...")
+
+    print(f"  Nombre: {DATOS['nombre']}")
     nombre_input = page.get_by_placeholder("Nombre*")
     await nombre_input.fill(DATOS["nombre"])
-    
-    print(f"Llenando apellido: {DATOS['apellido']}")
+
+    print(f"  Apellido: {DATOS['apellido']}")
     apellido_input = page.get_by_placeholder("Apellido*")
     await apellido_input.fill(DATOS["apellido"])
-    
+
     fecha_str = fecha_visita.strftime('%d/%m/%Y')
-    print(f"Seleccionando fecha: {fecha_str}")
+    print(f"  Fecha: {fecha_str}")
     date_input = page.locator("input[type='date']")
     fecha_formato_input = fecha_visita.strftime("%Y-%m-%d")
     await date_input.fill(fecha_formato_input)
-    
-    print(f"Llenando documento: {DATOS['documento']}")
+
+    print(f"  Documento: {DATOS['documento']}")
     documento_input = page.get_by_placeholder("DOCUMENTO*")
     await documento_input.fill(DATOS["documento"])
-    
-    print(f"Seleccionando menores: {DATOS['menores']}")
+
+    print(f"  Menores: {DATOS['menores']}")
     menores_select = page.locator("select").nth(1)
     await menores_select.select_option(value=DATOS["menores"])
-    
+
     print("Formulario preparado, listo para enviar...")
     return fecha_str
 
 async def esperar_turnos_disponibles(page, fecha_visita):
     """
     Refresca la página hasta que el atributo 'max' del campo fecha
-    permita nuestra fecha objetivo. Solo carga la página y selecciona
-    la unidad (para obtener el max correcto), sin llenar el resto.
+    permita nuestra fecha objetivo. Usa navegación con reintentos.
+    Deja la pagina cargada con la unidad seleccionada para reutilizar.
     """
     import time
     inicio = time.time()
@@ -210,13 +239,8 @@ async def esperar_turnos_disponibles(page, fecha_visita):
     while True:
         intento += 1
         print(f"Verificando disponibilidad de turnos (intento #{intento})...")
-        await page.goto(URL, wait_until="networkidle")
-        await page.wait_for_timeout(2000)
 
-        # Seleccionar unidad primero (puede afectar las fechas disponibles)
-        unidad_select = page.locator("select").first
-        await unidad_select.select_option(value=DATOS["unidad"])
-        await page.wait_for_timeout(500)
+        await cargar_pagina_y_seleccionar_unidad(page)
 
         date_input = page.locator("input[type='date']")
         max_attr = await date_input.get_attribute("max")
@@ -235,14 +259,31 @@ async def esperar_turnos_disponibles(page, fecha_visita):
 
         restante = MAX_ESPERA_TURNOS - transcurrido
         print(f"  Turnos no disponibles aun. Reintentando en {INTERVALO_RECARGA}s (quedan {restante:.0f}s)...")
-        await page.wait_for_timeout(INTERVALO_RECARGA * 1000)
+        await asyncio.sleep(INTERVALO_RECARGA)
 
 
 async def enviar_formulario_con_reintentos(page, downloads_path, fecha_visita):
-    for intento in range(1, MAX_REINTENTOS + 1):
+    """
+    Reintenta enviar el formulario indefinidamente hasta que se agote TIMEOUT_TOTAL.
+    No hay límite de intentos, solo límite de tiempo.
+    """
+    import time
+    inicio = time.time()
+    intento = 0
+
+    while True:
+        intento += 1
+        transcurrido = time.time() - inicio
+
+        if transcurrido >= TIMEOUT_TOTAL:
+            print(f"Timeout: {TIMEOUT_TOTAL}s agotados despues de {intento - 1} intentos")
+            return None
+
+        restante = TIMEOUT_TOTAL - transcurrido
+
         try:
             generar_btn = page.get_by_role("button", name="Generar Turno")
-            print(f"Intento {intento}/{MAX_REINTENTOS} - Haciendo clic en GENERAR TURNO...")
+            print(f"Intento #{intento} - Haciendo clic en GENERAR TURNO... (quedan {restante:.0f}s)")
             hora_click = datetime.now(TIMEZONE)
             print(f"Hora del click: {hora_click.strftime('%H:%M:%S.%f')}")
 
@@ -256,19 +297,23 @@ async def enviar_formulario_con_reintentos(page, downloads_path, fecha_visita):
             return pdf_path
 
         except Exception as e:
-            print(f"Intento {intento} fallido: {e}")
+            print(f"Intento #{intento} fallido: {e}")
             screenshot_path = downloads_path / f"error_intento{intento}_{datetime.now(TIMEZONE).strftime('%Y%m%d_%H%M%S')}.png"
-            await page.screenshot(path=str(screenshot_path))
-            print(f"Screenshot guardado: {screenshot_path}")
+            try:
+                await page.screenshot(path=str(screenshot_path))
+                print(f"Screenshot guardado: {screenshot_path}")
+            except Exception:
+                print("No se pudo guardar screenshot")
 
-            if intento < MAX_REINTENTOS:
-                print("Recargando pagina y re-llenando formulario...")
+            if time.time() - inicio < TIMEOUT_TOTAL:
+                espera = min(2 ** min(intento, 4), 15)  # 2, 4, 8, 15, 15...
+                print(f"Recargando pagina en {espera}s y re-llenando formulario...")
+                await asyncio.sleep(espera)
+                await cargar_pagina_y_seleccionar_unidad(page)
                 await preparar_formulario(page, fecha_visita)
             else:
-                print("Todos los intentos fallaron")
+                print(f"Tiempo agotado ({TIMEOUT_TOTAL}s). No se pudo completar.")
                 return None
-
-    return None
 
 async def run():
     downloads_path = Path(__file__).parent / "downloads"
@@ -299,13 +344,15 @@ async def run():
         page = await context.new_page()
 
         # 1. Esperar a que los turnos estén disponibles (refrescando hasta que max >= fecha)
+        #    Esto deja la pagina cargada con la unidad ya seleccionada
         turnos_listos = await esperar_turnos_disponibles(page, fecha_visita)
         if not turnos_listos:
             print("No se pudieron actualizar los turnos. Abortando.")
             await browser.close()
             return None
 
-        # 2. Ahora que sabemos que la fecha es válida, llenar el formulario completo
+        # 2. La pagina ya esta cargada con la unidad seleccionada,
+        #    solo llenar el resto del formulario (SIN navegar de nuevo)
         fecha_str = await preparar_formulario(page, fecha_visita)
 
         # 3. Enviar
