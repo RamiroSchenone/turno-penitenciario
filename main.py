@@ -10,13 +10,22 @@ import resend
 URL = "https://www.santafe.gob.ar/seturnosweb/"
 TIMEZONE = ZoneInfo("America/Argentina/Buenos_Aires")
 
-DATOS = {
-    "nombre": "Paola Fabiana",
-    "apellido": "Veron",
-    "documento": "24470091",
-    "unidad": "Unidad 11, PIÑERO",
-    "menores": "0"
-}
+PERSONAS = [
+    {
+        "nombre": "Paola Fabiana",
+        "apellido": "Veron",
+        "documento": "24470091",
+        "unidad": "Unidad 11, PIÑERO",
+        "menores": "0"
+    },
+    {
+        "nombre": "Maria Cristina",
+        "apellido": "Urruti",
+        "documento": "13966015",
+        "unidad": "Unidad 11, PIÑERO",
+        "menores": "0"
+    }
+]
 
 RESEND_API_KEY = os.getenv("RESEND_API_KEY")
 EMAIL_DESTINATARIO = os.getenv("EMAIL_DESTINATARIO")
@@ -111,56 +120,56 @@ def esperar_hasta_hora_objetivo():
             break
         time.sleep(0.01)  # 10ms de precisión
 
-def enviar_email(pdf_path: str, fecha_visita: str):
+def enviar_email(pdf_path: str, fecha_visita: str, datos: dict):
     if not RESEND_API_KEY or not EMAIL_DESTINATARIO:
         print("RESEND_API_KEY o EMAIL_DESTINATARIO no configurados, saltando envio de email")
         return False
-    
+
     resend.api_key = RESEND_API_KEY
-    
+
     with open(pdf_path, "rb") as f:
         pdf_content = f.read()
-    
+
     pdf_base64 = base64.b64encode(pdf_content).decode("utf-8")
-    
+
     destinatarios = [email.strip() for email in EMAIL_DESTINATARIO.split(",")]
     print(f"Destinatarios: {destinatarios}")
-    
+
     exitos = 0
     for destinatario in destinatarios:
         print(f"Enviando email a: {destinatario}...")
-        
+
         params = {
             "from": "Turno Penitenciario <turno@ramiroschenone-dev.com>",
             "to": [destinatario],
-            "subject": f"Turno Penitenciario - {fecha_visita}",
+            "subject": f"Turno Penitenciario - {datos['nombre']} {datos['apellido']} - {fecha_visita}",
             "html": f"""
             <h2>Turno Generado Exitosamente</h2>
             <p>Se ha generado el turno para la visita del <strong>{fecha_visita}</strong>.</p>
             <p><strong>Datos:</strong></p>
             <ul>
-                <li>Nombre: {DATOS['nombre']} {DATOS['apellido']}</li>
-                <li>DNI: {DATOS['documento']}</li>
-                <li>Unidad: {DATOS['unidad']}</li>
+                <li>Nombre: {datos['nombre']} {datos['apellido']}</li>
+                <li>DNI: {datos['documento']}</li>
+                <li>Unidad: {datos['unidad']}</li>
                 <li>Fecha de visita: {fecha_visita}</li>
             </ul>
             <p>El comprobante PDF se adjunta a este correo.</p>
             """,
             "attachments": [
                 {
-                    "filename": f"turno_{fecha_visita.replace('/', '-')}.pdf",
+                    "filename": f"turno_{datos['documento']}_{fecha_visita.replace('/', '-')}.pdf",
                     "content": pdf_base64
                 }
             ]
         }
-        
+
         try:
             response = resend.Emails.send(params)
             print(f"  -> Enviado a {destinatario}: {response}")
             exitos += 1
         except Exception as e:
             print(f"  -> Error enviando a {destinatario}: {e}")
-    
+
     print(f"Emails enviados: {exitos}/{len(destinatarios)}")
     return exitos > 0
 
@@ -186,27 +195,27 @@ async def navegar_con_reintentos(page, url=URL, max_reintentos=MAX_REINTENTOS_NA
                 raise Exception(f"No se pudo cargar la pagina despues de {max_reintentos} intentos: {e}")
 
 
-async def cargar_pagina_y_seleccionar_unidad(page):
+async def cargar_pagina_y_seleccionar_unidad(page, datos):
     """Carga la pagina con reintentos y selecciona la unidad."""
     await navegar_con_reintentos(page)
     await page.wait_for_timeout(1000)
     print("  Seleccionando unidad...")
     unidad_select = page.locator("select").first
-    await unidad_select.select_option(value=DATOS["unidad"])
+    await unidad_select.select_option(value=datos["unidad"])
     await page.wait_for_timeout(500)
 
 
-async def preparar_formulario(page, fecha_visita):
+async def preparar_formulario(page, fecha_visita, datos):
     """Llena el formulario. Asume que la pagina ya esta cargada con la unidad seleccionada."""
     print("Llenando formulario...")
 
-    print(f"  Nombre: {DATOS['nombre']}")
+    print(f"  Nombre: {datos['nombre']}")
     nombre_input = page.get_by_placeholder("Nombre*")
-    await nombre_input.fill(DATOS["nombre"])
+    await nombre_input.fill(datos["nombre"])
 
-    print(f"  Apellido: {DATOS['apellido']}")
+    print(f"  Apellido: {datos['apellido']}")
     apellido_input = page.get_by_placeholder("Apellido*")
-    await apellido_input.fill(DATOS["apellido"])
+    await apellido_input.fill(datos["apellido"])
 
     fecha_str = fecha_visita.strftime('%d/%m/%Y')
     print(f"  Fecha: {fecha_str}")
@@ -214,18 +223,18 @@ async def preparar_formulario(page, fecha_visita):
     fecha_formato_input = fecha_visita.strftime("%Y-%m-%d")
     await date_input.fill(fecha_formato_input)
 
-    print(f"  Documento: {DATOS['documento']}")
+    print(f"  Documento: {datos['documento']}")
     documento_input = page.get_by_placeholder("DOCUMENTO*")
-    await documento_input.fill(DATOS["documento"])
+    await documento_input.fill(datos["documento"])
 
-    print(f"  Menores: {DATOS['menores']}")
+    print(f"  Menores: {datos['menores']}")
     menores_select = page.locator("select").nth(1)
-    await menores_select.select_option(value=DATOS["menores"])
+    await menores_select.select_option(value=datos["menores"])
 
     print("Formulario preparado, listo para enviar...")
     return fecha_str
 
-async def esperar_turnos_disponibles(page, fecha_visita):
+async def esperar_turnos_disponibles(page, fecha_visita, datos):
     """
     Refresca la página hasta que el atributo 'max' del campo fecha
     permita nuestra fecha objetivo. Usa navegación con reintentos.
@@ -240,7 +249,7 @@ async def esperar_turnos_disponibles(page, fecha_visita):
         intento += 1
         print(f"Verificando disponibilidad de turnos (intento #{intento})...")
 
-        await cargar_pagina_y_seleccionar_unidad(page)
+        await cargar_pagina_y_seleccionar_unidad(page, datos)
 
         date_input = page.locator("input[type='date']")
         max_attr = await date_input.get_attribute("max")
@@ -262,7 +271,7 @@ async def esperar_turnos_disponibles(page, fecha_visita):
         await asyncio.sleep(INTERVALO_RECARGA)
 
 
-async def enviar_formulario_con_reintentos(page, downloads_path, fecha_visita):
+async def enviar_formulario_con_reintentos(page, downloads_path, fecha_visita, datos):
     """
     Reintenta enviar el formulario indefinidamente hasta que se agote TIMEOUT_TOTAL.
     No hay límite de intentos, solo límite de tiempo.
@@ -291,7 +300,7 @@ async def enviar_formulario_con_reintentos(page, downloads_path, fecha_visita):
                 await generar_btn.click()
 
             download = await download_info.value
-            pdf_path = downloads_path / f"turno_{datetime.now(TIMEZONE).strftime('%Y%m%d_%H%M%S')}.pdf"
+            pdf_path = downloads_path / f"turno_{datos['documento']}_{datetime.now(TIMEZONE).strftime('%Y%m%d_%H%M%S')}.pdf"
             await download.save_as(pdf_path)
             print(f"PDF guardado en: {pdf_path}")
             return pdf_path
@@ -309,11 +318,42 @@ async def enviar_formulario_con_reintentos(page, downloads_path, fecha_visita):
                 espera = min(2 ** min(intento, 4), 15)  # 2, 4, 8, 15, 15...
                 print(f"Recargando pagina en {espera}s y re-llenando formulario...")
                 await asyncio.sleep(espera)
-                await cargar_pagina_y_seleccionar_unidad(page)
-                await preparar_formulario(page, fecha_visita)
+                await cargar_pagina_y_seleccionar_unidad(page, datos)
+                await preparar_formulario(page, fecha_visita, datos)
             else:
                 print(f"Tiempo agotado ({TIMEOUT_TOTAL}s). No se pudo completar.")
                 return None
+
+async def procesar_persona(page, downloads_path, fecha_visita, datos):
+    """
+    Flujo atómico para una persona: navega, espera turnos, llena formulario,
+    envía y manda email. Retorna el path del PDF o None si falló.
+    """
+    nombre_completo = f"{datos['nombre']} {datos['apellido']}"
+    print(f"\n{'='*50}")
+    print(f"Procesando: {nombre_completo} (DNI {datos['documento']})")
+    print(f"{'='*50}\n")
+
+    # 1. Esperar a que los turnos estén disponibles para esta persona
+    turnos_listos = await esperar_turnos_disponibles(page, fecha_visita, datos)
+    if not turnos_listos:
+        print(f"No se pudieron actualizar los turnos para {nombre_completo}. Saltando.")
+        return None
+
+    # 2. La pagina ya esta cargada con la unidad seleccionada,
+    #    solo llenar el resto del formulario (SIN navegar de nuevo)
+    fecha_str = await preparar_formulario(page, fecha_visita, datos)
+
+    # 3. Enviar
+    pdf_path = await enviar_formulario_con_reintentos(page, downloads_path, fecha_visita, datos)
+
+    # 4. Email
+    if pdf_path and pdf_path.exists():
+        print(f"Enviando email para {nombre_completo}...")
+        enviar_email(str(pdf_path), fecha_str, datos)
+
+    return str(pdf_path) if pdf_path else None
+
 
 async def run():
     downloads_path = Path(__file__).parent / "downloads"
@@ -321,6 +361,7 @@ async def run():
 
     fecha_visita = calcular_proximo_miercoles()
     print(f"Fecha de visita calculada: {fecha_visita.strftime('%d/%m/%Y')}")
+    print(f"Personas a procesar: {len(PERSONAS)}")
 
     if MODO_TEST:
         print("\n" + "="*50)
@@ -338,41 +379,32 @@ async def run():
         print("¡CARGANDO FORMULARIO Y ENVIANDO!")
         print("="*50 + "\n")
 
+    resultados = []
+
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
         context = await browser.new_context(accept_downloads=True)
         page = await context.new_page()
 
-        # 1. Esperar a que los turnos estén disponibles (refrescando hasta que max >= fecha)
-        #    Esto deja la pagina cargada con la unidad ya seleccionada
-        turnos_listos = await esperar_turnos_disponibles(page, fecha_visita)
-        if not turnos_listos:
-            print("No se pudieron actualizar los turnos. Abortando.")
-            await browser.close()
-            return None
-
-        # 2. La pagina ya esta cargada con la unidad seleccionada,
-        #    solo llenar el resto del formulario (SIN navegar de nuevo)
-        fecha_str = await preparar_formulario(page, fecha_visita)
-
-        # 3. Enviar
-        pdf_path = await enviar_formulario_con_reintentos(page, downloads_path, fecha_visita)
+        for i, datos in enumerate(PERSONAS, start=1):
+            print(f"\nPersona {i}/{len(PERSONAS)}")
+            pdf_path = await procesar_persona(page, downloads_path, fecha_visita, datos)
+            resultados.append(pdf_path)
 
         await browser.close()
-    
-    if pdf_path and pdf_path.exists():
-        print("Enviando email con el PDF...")
-        enviar_email(str(pdf_path), fecha_str)
-        
-    return str(pdf_path) if pdf_path else None
+
+    exitosos = [r for r in resultados if r]
+    print(f"\nResumen: {len(exitosos)}/{len(PERSONAS)} turnos generados exitosamente")
+    return resultados
 
 async def main():
     try:
-        result = await run()
-        if result:
-            print(f"Proceso completado exitosamente. PDF: {result}")
+        resultados = await run()
+        exitosos = [r for r in resultados if r]
+        if exitosos:
+            print(f"Proceso completado. PDFs generados: {exitosos}")
         else:
-            print("Proceso completado sin PDF")
+            print("Proceso completado sin PDFs generados")
     except Exception as e:
         print(f"Error durante la ejecucion: {e}")
         raise

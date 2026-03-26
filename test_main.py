@@ -156,16 +156,26 @@ class TestCargarPaginaYSeleccionarUnidad:
         page.locator = MagicMock(return_value=mock_locator_result)
         page.wait_for_timeout = AsyncMock()
 
+        datos = {"unidad": "Unidad 11, PIÑERO"}
         with patch("main.navegar_con_reintentos", new_callable=AsyncMock) as mock_nav:
             mock_nav.return_value = True
             from main import cargar_pagina_y_seleccionar_unidad
-            await cargar_pagina_y_seleccionar_unidad(page)
+            await cargar_pagina_y_seleccionar_unidad(page, datos)
 
         mock_nav.assert_called_once()
-        mock_select.select_option.assert_called_once_with(value="Unidad 16, PEREZ")
+        mock_select.select_option.assert_called_once_with(value="Unidad 11, PIÑERO")
 
 
 # ─── Tests para preparar_formulario ──────────────────────────────────────────
+
+DATOS_TEST = {
+    "nombre": "Paola Fabiana",
+    "apellido": "Veron",
+    "documento": "24470091",
+    "unidad": "Unidad 11, PIÑERO",
+    "menores": "0"
+}
+
 
 class TestPrepararFormulario:
     @pytest.mark.asyncio
@@ -191,7 +201,7 @@ class TestPrepararFormulario:
         }.get(sel, MagicMock()))
 
         from main import preparar_formulario
-        result = await preparar_formulario(page, fecha)
+        result = await preparar_formulario(page, fecha, DATOS_TEST)
 
         assert result == "25/02/2026"
         mock_nombre.fill.assert_called_once_with("Paola Fabiana")
@@ -212,7 +222,7 @@ class TestPrepararFormulario:
         page.locator = MagicMock(return_value=mock_locator)
 
         from main import preparar_formulario
-        await preparar_formulario(page, fecha)
+        await preparar_formulario(page, fecha, DATOS_TEST)
 
         page.goto.assert_not_called()
 
@@ -231,7 +241,7 @@ class TestEsperarTurnosDisponibles:
 
         with patch("main.cargar_pagina_y_seleccionar_unidad", new_callable=AsyncMock):
             from main import esperar_turnos_disponibles
-            result = await esperar_turnos_disponibles(page, fecha)
+            result = await esperar_turnos_disponibles(page, fecha, DATOS_TEST)
 
         assert result is True
 
@@ -249,7 +259,7 @@ class TestEsperarTurnosDisponibles:
         with patch("main.cargar_pagina_y_seleccionar_unidad", new_callable=AsyncMock), \
              patch("main.asyncio.sleep", new_callable=AsyncMock):
             from main import esperar_turnos_disponibles
-            result = await esperar_turnos_disponibles(page, fecha)
+            result = await esperar_turnos_disponibles(page, fecha, DATOS_TEST)
 
         assert result is True
         assert mock_date_input.get_attribute.call_count == 3
@@ -266,7 +276,7 @@ class TestEsperarTurnosDisponibles:
 
         with patch("main.cargar_pagina_y_seleccionar_unidad", new_callable=AsyncMock):
             from main import esperar_turnos_disponibles
-            result = await esperar_turnos_disponibles(page, fecha)
+            result = await esperar_turnos_disponibles(page, fecha, DATOS_TEST)
 
         assert result is True
 
@@ -315,11 +325,11 @@ class TestFlujoCompleto:
         from main import esperar_turnos_disponibles, preparar_formulario
 
         # Paso 1: esperar turnos
-        await esperar_turnos_disponibles(page, fecha)
+        await esperar_turnos_disponibles(page, fecha, DATOS_TEST)
         nav_count_after_esperar = len(goto_calls)
 
         # Paso 2: preparar formulario (NO debe navegar)
-        await preparar_formulario(page, fecha)
+        await preparar_formulario(page, fecha, DATOS_TEST)
         nav_count_after_preparar = len(goto_calls)
 
         # Solo una navegación total (la de esperar_turnos_disponibles)
@@ -374,7 +384,7 @@ class TestEnviarFormularioConReintentos:
              patch("main.asyncio.sleep", new_callable=AsyncMock), \
              patch("time.time", side_effect=mock_time):
             from main import enviar_formulario_con_reintentos
-            result = await enviar_formulario_con_reintentos(page, downloads_path, fecha)
+            result = await enviar_formulario_con_reintentos(page, downloads_path, fecha, DATOS_TEST)
 
         assert result is None
 
@@ -403,3 +413,88 @@ class TestConfiguracion:
     def test_timeout_navegacion_es_30s(self):
         from main import TIMEOUT_NAVEGACION
         assert TIMEOUT_NAVEGACION == 30000
+
+    def test_personas_es_lista(self):
+        """Verifica que PERSONAS es una lista con al menos una persona."""
+        from main import PERSONAS
+        assert isinstance(PERSONAS, list)
+        assert len(PERSONAS) >= 1
+        for p in PERSONAS:
+            assert all(k in p for k in ("nombre", "apellido", "documento", "unidad", "menores"))
+
+
+# ─── Tests para procesar_persona ─────────────────────────────────────────────
+
+class TestProcesarPersona:
+    @pytest.mark.asyncio
+    async def test_flujo_exitoso(self):
+        """Verifica el flujo completo atómico para una persona."""
+        from pathlib import Path
+        page = AsyncMock()
+        downloads_path = MagicMock()
+        fecha = datetime(2026, 2, 25, tzinfo=TIMEZONE)
+        fake_pdf = MagicMock(spec=Path)
+        fake_pdf.exists.return_value = True
+        fake_pdf.__str__ = lambda self: "/downloads/turno_test.pdf"
+
+        with patch("main.esperar_turnos_disponibles", new_callable=AsyncMock, return_value=True), \
+             patch("main.preparar_formulario", new_callable=AsyncMock, return_value="25/02/2026"), \
+             patch("main.enviar_formulario_con_reintentos", new_callable=AsyncMock, return_value=fake_pdf), \
+             patch("main.enviar_email") as mock_email:
+            from main import procesar_persona
+            result = await procesar_persona(page, downloads_path, fecha, DATOS_TEST)
+
+        assert result == str(fake_pdf)
+        mock_email.assert_called_once_with(str(fake_pdf), "25/02/2026", DATOS_TEST)
+
+    @pytest.mark.asyncio
+    async def test_turnos_no_disponibles_retorna_none(self):
+        """Si los turnos no están disponibles, retorna None sin continuar."""
+        page = AsyncMock()
+        downloads_path = MagicMock()
+        fecha = datetime(2026, 2, 25, tzinfo=TIMEZONE)
+
+        with patch("main.esperar_turnos_disponibles", new_callable=AsyncMock, return_value=False), \
+             patch("main.preparar_formulario", new_callable=AsyncMock) as mock_prep, \
+             patch("main.enviar_formulario_con_reintentos", new_callable=AsyncMock) as mock_enviar:
+            from main import procesar_persona
+            result = await procesar_persona(page, downloads_path, fecha, DATOS_TEST)
+
+        assert result is None
+        mock_prep.assert_not_called()
+        mock_enviar.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_multiples_personas_llama_procesar_para_cada_una(self):
+        """Verifica que run() llama procesar_persona una vez por cada persona en PERSONAS."""
+        personas_test = [
+            {"nombre": "Ana", "apellido": "Lopez", "documento": "11111111", "unidad": "Unidad 11, PIÑERO", "menores": "0"},
+            {"nombre": "Juan", "apellido": "Perez", "documento": "22222222", "unidad": "Unidad 11, PIÑERO", "menores": "1"},
+        ]
+
+        llamadas = []
+
+        async def mock_procesar(page, downloads_path, fecha_visita, datos):
+            llamadas.append(datos["documento"])
+            return f"/fake/{datos['documento']}.pdf"
+
+        mock_browser = AsyncMock()
+        mock_context = AsyncMock()
+        mock_page = AsyncMock()
+        mock_context.new_page = AsyncMock(return_value=mock_page)
+        mock_browser.new_context = AsyncMock(return_value=mock_context)
+
+        mock_playwright = AsyncMock()
+        mock_playwright.__aenter__ = AsyncMock(return_value=mock_playwright)
+        mock_playwright.__aexit__ = AsyncMock(return_value=None)
+        mock_playwright.chromium.launch = AsyncMock(return_value=mock_browser)
+
+        with patch("main.PERSONAS", personas_test), \
+             patch("main.MODO_TEST", True), \
+             patch("main.procesar_persona", side_effect=mock_procesar), \
+             patch("main.async_playwright", return_value=mock_playwright):
+            from main import run
+            resultados = await run()
+
+        assert llamadas == ["11111111", "22222222"]
+        assert len(resultados) == 2
