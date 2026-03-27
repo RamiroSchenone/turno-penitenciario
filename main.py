@@ -45,12 +45,6 @@ def calcular_proximo_miercoles():
     return proximo_miercoles
 
 def obtener_hora_objetivo():
-    """
-    Obtiene la hora objetivo para ejecutar.
-    Si se pasa HORA_OBJETIVO env var (formato HH:MM o HH:MM:SS), usa esa hora del día actual.
-    Si no, usa medianoche (00:00:01) del día siguiente si es después de mediodía,
-    o del día actual si es antes de mediodía.
-    """
     ahora = datetime.now(TIMEZONE)
     hora_objetivo_env = os.getenv("HORA_OBJETIVO")
 
@@ -61,14 +55,12 @@ def obtener_hora_objetivo():
             minuto = int(partes[1])
             segundo = int(partes[2]) if len(partes) >= 3 else 0
             objetivo = datetime(ahora.year, ahora.month, ahora.day, hora, minuto, segundo, tzinfo=TIMEZONE)
-            # Si la hora ya pasó hoy, usar mañana
             if objetivo <= ahora:
                 objetivo += timedelta(days=1)
             return objetivo
         except ValueError:
             print(f"HORA_OBJETIVO inválida: {hora_objetivo_env}, usando medianoche")
 
-    # Default: medianoche
     if ahora.hour >= 12:
         manana = ahora + timedelta(days=1)
         return datetime(manana.year, manana.month, manana.day, 0, 0, 1, tzinfo=TIMEZONE)
@@ -76,10 +68,6 @@ def obtener_hora_objetivo():
         return datetime(ahora.year, ahora.month, ahora.day, 0, 0, 1, tzinfo=TIMEZONE)
 
 def esperar_hasta_hora_objetivo():
-    """
-    Espera hasta la hora objetivo con precisión de milisegundos.
-    Diseñado para ser disparado ~10-30 segundos antes por cron-job.org.
-    """
     import time
 
     objetivo = obtener_hora_objetivo()
@@ -91,7 +79,6 @@ def esperar_hasta_hora_objetivo():
         print("Ya pasó la hora objetivo, ejecutando inmediatamente...")
         return
 
-    # Máximo 5 minutos de espera - si es más, algo está mal configurado
     if segundos_restantes > 300:
         raise Exception(f"Demasiado tiempo de espera ({segundos_restantes:.0f} seg). El trigger debe dispararse ~30 seg antes de la hora objetivo.")
 
@@ -99,7 +86,6 @@ def esperar_hasta_hora_objetivo():
     print(f"Hora objetivo: {objetivo.strftime('%Y-%m-%d %H:%M:%S')}")
     print(f"Esperando {segundos_restantes:.1f} segundos...")
 
-    # Espera gruesa hasta 2 segundos antes
     while True:
         ahora = datetime.now(TIMEZONE)
         segundos_restantes = (objetivo - ahora).total_seconds()
@@ -112,13 +98,12 @@ def esperar_hasta_hora_objetivo():
         else:
             time.sleep(0.5)
 
-    # Espera fina con alta precisión
     while True:
         ahora = datetime.now(TIMEZONE)
         if ahora >= objetivo:
             print(f"¡HORA EXACTA! {ahora.strftime('%H:%M:%S.%f')}")
             break
-        time.sleep(0.01)  # 10ms de precisión
+        time.sleep(0.01)
 
 def enviar_email(pdf_path: str, fecha_visita: str, datos: dict):
     if not RESEND_API_KEY or not EMAIL_DESTINATARIO:
@@ -174,10 +159,6 @@ def enviar_email(pdf_path: str, fecha_visita: str, datos: dict):
     return exitos > 0
 
 async def navegar_con_reintentos(page, url=URL, max_reintentos=MAX_REINTENTOS_NAVEGACION):
-    """
-    Navega a una URL con reintentos y backoff exponencial.
-    Usa 'domcontentloaded' en vez de 'networkidle' para mayor robustez.
-    """
     for intento in range(1, max_reintentos + 1):
         try:
             print(f"  Navegando a {url} (intento {intento}/{max_reintentos})...")
@@ -196,7 +177,6 @@ async def navegar_con_reintentos(page, url=URL, max_reintentos=MAX_REINTENTOS_NA
 
 
 async def cargar_pagina_y_seleccionar_unidad(page, datos):
-    """Carga la pagina con reintentos y selecciona la unidad."""
     await navegar_con_reintentos(page)
     await page.wait_for_timeout(1000)
     print("  Seleccionando unidad...")
@@ -206,7 +186,6 @@ async def cargar_pagina_y_seleccionar_unidad(page, datos):
 
 
 async def preparar_formulario(page, fecha_visita, datos):
-    """Llena el formulario. Asume que la pagina ya esta cargada con la unidad seleccionada."""
     print("Llenando formulario...")
 
     print(f"  Nombre: {datos['nombre']}")
@@ -235,11 +214,6 @@ async def preparar_formulario(page, fecha_visita, datos):
     return fecha_str
 
 async def esperar_turnos_disponibles(page, fecha_visita, datos):
-    """
-    Refresca la página hasta que el atributo 'max' del campo fecha
-    permita nuestra fecha objetivo. Usa navegación con reintentos.
-    Deja la pagina cargada con la unidad seleccionada para reutilizar.
-    """
     import time
     inicio = time.time()
     intento = 0
@@ -272,10 +246,6 @@ async def esperar_turnos_disponibles(page, fecha_visita, datos):
 
 
 async def enviar_formulario_con_reintentos(page, downloads_path, fecha_visita, datos):
-    """
-    Reintenta enviar el formulario indefinidamente hasta que se agote TIMEOUT_TOTAL.
-    No hay límite de intentos, solo límite de tiempo.
-    """
     import time
     inicio = time.time()
     intento = 0
@@ -315,7 +285,7 @@ async def enviar_formulario_con_reintentos(page, downloads_path, fecha_visita, d
                 print("No se pudo guardar screenshot")
 
             if time.time() - inicio < TIMEOUT_TOTAL:
-                espera = min(2 ** min(intento, 4), 15)  # 2, 4, 8, 15, 15...
+                espera = min(2 ** min(intento, 4), 15)
                 print(f"Recargando pagina en {espera}s y re-llenando formulario...")
                 await asyncio.sleep(espera)
                 await cargar_pagina_y_seleccionar_unidad(page, datos)
@@ -324,30 +294,29 @@ async def enviar_formulario_con_reintentos(page, downloads_path, fecha_visita, d
                 print(f"Tiempo agotado ({TIMEOUT_TOTAL}s). No se pudo completar.")
                 return None
 
-async def procesar_persona(page, downloads_path, fecha_visita, datos):
-    """
-    Flujo atómico para una persona: navega, espera turnos, llena formulario,
-    envía y manda email. Retorna el path del PDF o None si falló.
-    """
+
+async def procesar_persona(downloads_path, fecha_visita, datos):
     nombre_completo = f"{datos['nombre']} {datos['apellido']}"
     print(f"\n{'='*50}")
     print(f"Procesando: {nombre_completo} (DNI {datos['documento']})")
     print(f"{'='*50}\n")
 
-    # 1. Esperar a que los turnos estén disponibles para esta persona
-    turnos_listos = await esperar_turnos_disponibles(page, fecha_visita, datos)
-    if not turnos_listos:
-        print(f"No se pudieron actualizar los turnos para {nombre_completo}. Saltando.")
-        return None
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(headless=True)
+        context = await browser.new_context(accept_downloads=True)
+        page = await context.new_page()
 
-    # 2. La pagina ya esta cargada con la unidad seleccionada,
-    #    solo llenar el resto del formulario (SIN navegar de nuevo)
-    fecha_str = await preparar_formulario(page, fecha_visita, datos)
+        turnos_listos = await esperar_turnos_disponibles(page, fecha_visita, datos)
+        if not turnos_listos:
+            print(f"No se pudieron actualizar los turnos para {nombre_completo}. Saltando.")
+            await browser.close()
+            return None
 
-    # 3. Enviar
-    pdf_path = await enviar_formulario_con_reintentos(page, downloads_path, fecha_visita, datos)
+        fecha_str = await preparar_formulario(page, fecha_visita, datos)
+        pdf_path = await enviar_formulario_con_reintentos(page, downloads_path, fecha_visita, datos)
 
-    # 4. Email
+        await browser.close()
+
     if pdf_path and pdf_path.exists():
         print(f"Enviando email para {nombre_completo}...")
         enviar_email(str(pdf_path), fecha_str, datos)
@@ -372,7 +341,6 @@ async def run():
         print("MODO PRODUCCION - ESPERANDO HORA OBJETIVO")
         print("="*50 + "\n")
 
-        # Esperar ANTES de abrir el navegador para evitar timeout de sesión
         esperar_hasta_hora_objetivo()
 
         print("\n" + "="*50)
@@ -381,21 +349,15 @@ async def run():
 
     resultados = []
 
-    async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=True)
-        context = await browser.new_context(accept_downloads=True)
-        page = await context.new_page()
-
-        for i, datos in enumerate(PERSONAS, start=1):
-            print(f"\nPersona {i}/{len(PERSONAS)}")
-            pdf_path = await procesar_persona(page, downloads_path, fecha_visita, datos)
-            resultados.append(pdf_path)
-
-        await browser.close()
+    for i, datos in enumerate(PERSONAS, start=1):
+        print(f"\nPersona {i}/{len(PERSONAS)}")
+        pdf_path = await procesar_persona(downloads_path, fecha_visita, datos)
+        resultados.append(pdf_path)
 
     exitosos = [r for r in resultados if r]
     print(f"\nResumen: {len(exitosos)}/{len(PERSONAS)} turnos generados exitosamente")
     return resultados
+
 
 async def main():
     try:
