@@ -12,16 +12,16 @@ TIMEZONE = ZoneInfo("America/Argentina/Buenos_Aires")
 
 PERSONAS = [
     {
-        "nombre": "Paola Fabiana",
-        "apellido": "Veron",
-        "documento": "24470091",
+        "nombre": "Maria Cristina",
+        "apellido": "Urruti",
+        "documento": "13966015",
         "unidad": "Unidad 11, PIÑERO",
         "menores": "0"
     },
     {
-        "nombre": "Maria Cristina",
-        "apellido": "Urruti",
-        "documento": "13966015",
+        "nombre": "Paola Fabiana",
+        "apellido": "Veron",
+        "documento": "24470091",
         "unidad": "Unidad 11, PIÑERO",
         "menores": "0"
     }
