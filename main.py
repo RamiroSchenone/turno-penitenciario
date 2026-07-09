@@ -33,8 +33,10 @@ MODO_TEST = os.getenv("MODO_TEST", "false").lower() == "true"
 TIMEOUT_TOTAL = 900        # 15 minutos máximo para todo el proceso de reintentos
 MAX_ESPERA_TURNOS = 300    # Máximo 5 minutos esperando que se actualicen los turnos
 INTERVALO_RECARGA = 5      # Segundos entre recargas de página
-MAX_REINTENTOS_NAVEGACION = 5
-TIMEOUT_NAVEGACION = 30000  # 30 segundos
+MAX_REINTENTOS_NAVEGACION = 15
+TIMEOUT_NAVEGACION = 20000  # 20 segundos (más corto para ciclar más rápido ante saturación)
+TIMEOUT_SELECTOR = 10000    # 10 segundos esperando el <select> tras cargar
+BACKOFF_MAX = 5             # Tope de espera entre reintentos de navegación (segundos)
 
 def calcular_proximo_miercoles():
     ahora = datetime.now(TIMEZONE)
@@ -163,13 +165,15 @@ async def navegar_con_reintentos(page, url=URL, max_reintentos=MAX_REINTENTOS_NA
         try:
             print(f"  Navegando a {url} (intento {intento}/{max_reintentos})...")
             await page.goto(url, wait_until="domcontentloaded", timeout=TIMEOUT_NAVEGACION)
-            await page.wait_for_selector("select", timeout=15000)
+            await page.wait_for_selector("select", timeout=TIMEOUT_SELECTOR)
             print(f"  Pagina cargada exitosamente")
             return True
         except Exception as e:
             print(f"  Error navegando (intento {intento}): {e}")
             if intento < max_reintentos:
-                espera = min(2 ** intento, 15)
+                # Backoff corto y con tope bajo: ante saturación de medianoche
+                # conviene reintentar seguido en vez de esperar mucho.
+                espera = min(2 + intento, BACKOFF_MAX)
                 print(f"  Reintentando en {espera} segundos...")
                 await asyncio.sleep(espera)
             else:
